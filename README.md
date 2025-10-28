@@ -1,7 +1,8 @@
 # melody
 
-[![Build Status](https://travis-ci.org/olahol/melody.svg)](https://travis-ci.org/olahol/melody)
-[![Coverage Status](https://img.shields.io/coveralls/olahol/melody.svg?style=flat)](https://coveralls.io/r/olahol/melody)
+![Build Status](https://github.com/olahol/melody/actions/workflows/test.yml/badge.svg)
+[![Codecov](https://img.shields.io/codecov/c/github/olahol/melody)](https://app.codecov.io/github/olahol/melody)
+[![Go Report Card](https://goreportcard.com/badge/github.com/olahol/melody)](https://goreportcard.com/report/github.com/olahol/melody)
 [![GoDoc](https://godoc.org/github.com/olahol/melody?status.svg)](https://godoc.org/github.com/olahol/melody)
 
 > :notes: Minimalist websocket framework for Go.
@@ -26,69 +27,31 @@ go get github.com/olahol/melody
 
 [![Chat](https://cdn.rawgit.com/olahol/melody/master/examples/chat/demo.gif "Demo")](https://github.com/olahol/melody/tree/master/examples/chat)
 
-Using [Gin](https://github.com/gin-gonic/gin):
 ```go
 package main
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/olahol/melody"
 	"net/http"
+
+	"github.com/olahol/melody"
 )
 
 func main() {
-	r := gin.Default()
 	m := melody.New()
 
-	r.GET("/", func(c *gin.Context) {
-		http.ServeFile(c.Writer, c.Request, "index.html")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "index.html")
 	})
 
-	r.GET("/ws", func(c *gin.Context) {
-		m.HandleRequest(c.Writer, c.Request)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		m.HandleRequest(w, r)
 	})
 
 	m.HandleMessage(func(s *melody.Session, msg []byte) {
 		m.Broadcast(msg)
 	})
 
-	r.Run(":5000")
-}
-```
-
-Using [Echo](https://github.com/labstack/echo):
-```go
-package main
-
-import (
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
-	"github.com/olahol/melody"
-	"net/http"
-)
-
-func main() {
-	e := echo.New()
-	m := melody.New()
-
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-
-	e.GET("/", func(c echo.Context) error {
-		http.ServeFile(c.Response().Writer, c.Request(), "index.html")
-		return nil
-	})
-
-	e.GET("/ws", func(c echo.Context) error {
-		m.HandleRequest(c.Response().Writer, c.Request())
-		return nil
-	})
-
-	m.HandleMessage(func(s *melody.Session, msg []byte) {
-		m.Broadcast(msg)
-	})
-
-	e.Logger.Fatal(e.Start(":5000"))
+	http.ListenAndServe(":5000", nil)
 }
 ```
 
@@ -100,60 +63,47 @@ func main() {
 package main
 
 import (
+	"fmt"
 	"net/http"
-	"strings"
+	"sync/atomic"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/olahol/melody"
 )
 
-type GopherInfo struct {
-	ID, X, Y string
-}
+var idCounter atomic.Int64
 
 func main() {
-	router := gin.Default()
-	mrouter := melody.New()
+	m := melody.New()
 
-	router.GET("/", func(c *gin.Context) {
-		http.ServeFile(c.Writer, c.Request, "index.html")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "index.html")
 	})
 
-	router.GET("/ws", func(c *gin.Context) {
-		mrouter.HandleRequest(c.Writer, c.Request)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		m.HandleRequest(w, r)
 	})
 
-	mrouter.HandleConnect(func(s *melody.Session) {
-		ss, _ := mrouter.Sessions()
+	m.HandleConnect(func(s *melody.Session) {
+		id := idCounter.Add(1)
 
-		for _, o := range ss {
-			info := o.MustGet("info").(*GopherInfo)
-			s.Write([]byte("set " + info.ID + " " + info.X + " " + info.Y))
-		}
+		s.Set("id", id)
 
-		id := uuid.NewString()
-		s.Set("info", &GopherInfo{id, "0", "0"})
-
-		s.Write([]byte("iam " + id))
+		s.Write([]byte(fmt.Sprintf("iam %d", id)))
 	})
 
-	mrouter.HandleDisconnect(func(s *melody.Session) {
-		info := s.MustGet("info").(*GopherInfo)
-		mrouter.BroadcastOthers([]byte("dis "+info.ID), s)
-	})
-
-	mrouter.HandleMessage(func(s *melody.Session, msg []byte) {
-		p := strings.Split(string(msg), " ")
-		if len(p) == 2 {
-			info := s.MustGet("info").(*GopherInfo)
-			info.X = p[0]
-			info.Y = p[1]
-			mrouter.BroadcastOthers([]byte("set "+info.ID+" "+info.X+" "+info.Y), s)
+	m.HandleDisconnect(func(s *melody.Session) {
+		if id, ok := s.Get("id"); ok {
+			m.BroadcastOthers([]byte(fmt.Sprintf("dis %d", id)), s)
 		}
 	})
 
-	router.Run(":5000")
+	m.HandleMessage(func(s *melody.Session, msg []byte) {
+		if id, ok := s.Get("id"); ok {
+			m.BroadcastOthers([]byte(fmt.Sprintf("set %d %s", id, msg)), s)
+		}
+	})
+
+	http.ListenAndServe(":5000", nil)
 }
 ```
 
@@ -163,15 +113,9 @@ func main() {
 
 ## Contributors
 
-* Ola Holmström (@olahol)
-* Shogo Iwano (@shiwano)
-* Matt Caldwell (@mattcaldwell)
-* Heikki Uljas (@huljas)
-* Robbie Trencheny (@robbiet480)
-* yangjinecho (@yangjinecho)
-* lesismal (@lesismal)
-* parkerzhu (@parkerzhu)
-* gabstv (@gabstv)
+<a href="https://github.com/olahol/melody/graphs/contributors">
+	<img src="https://contrib.rocks/image?repo=olahol/melody" />
+</a>
 
 ## FAQ
 

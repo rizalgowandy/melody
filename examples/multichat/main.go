@@ -1,25 +1,24 @@
 package main
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/olahol/melody"
 	"net/http"
+
+	"github.com/olahol/melody"
 )
 
 func main() {
-	r := gin.Default()
 	m := melody.New()
 
-	r.GET("/", func(c *gin.Context) {
-		http.ServeFile(c.Writer, c.Request, "index.html")
+	http.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "index.html")
 	})
 
-	r.GET("/channel/:name", func(c *gin.Context) {
-		http.ServeFile(c.Writer, c.Request, "chan.html")
+	http.HandleFunc("GET /channel/{chan}", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "chan.html")
 	})
 
-	r.GET("/channel/:name/ws", func(c *gin.Context) {
-		m.HandleRequest(c.Writer, c.Request)
+	http.HandleFunc("GET /channel/{chan}/ws", func(w http.ResponseWriter, r *http.Request) {
+		m.HandleRequest(w, r)
 	})
 
 	m.HandleMessage(func(s *melody.Session, msg []byte) {
@@ -28,5 +27,5 @@ func main() {
 		})
 	})
 
-	r.Run(":5000")
+	http.ListenAndServe(":5000", nil)
 }

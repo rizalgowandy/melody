@@ -1,30 +1,29 @@
 package main
 
 import (
-	"github.com/gin-gonic/gin"
+	"net/http"
+	"os"
+
 	"github.com/fsnotify/fsnotify"
 	"github.com/olahol/melody"
-	"io/ioutil"
-	"net/http"
 )
 
 func main() {
 	file := "file.txt"
 
-	r := gin.Default()
 	m := melody.New()
 	w, _ := fsnotify.NewWatcher()
 
-	r.GET("/", func(c *gin.Context) {
-		http.ServeFile(c.Writer, c.Request, "index.html")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "index.html")
 	})
 
-	r.GET("/ws", func(c *gin.Context) {
-		m.HandleRequest(c.Writer, c.Request)
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		m.HandleRequest(w, r)
 	})
 
 	m.HandleConnect(func(s *melody.Session) {
-		content, _ := ioutil.ReadFile(file)
+		content, _ := os.ReadFile(file)
 		s.Write(content)
 	})
 
@@ -32,7 +31,7 @@ func main() {
 		for {
 			ev := <-w.Events
 			if ev.Op == fsnotify.Write {
-				content, _ := ioutil.ReadFile(ev.Name)
+				content, _ := os.ReadFile(ev.Name)
 				m.Broadcast(content)
 			}
 		}
@@ -40,5 +39,5 @@ func main() {
 
 	w.Add(file)
 
-	r.Run(":5000")
+	http.ListenAndServe(":5000", nil)
 }
